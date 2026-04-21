@@ -1,6 +1,5 @@
 import { useState, useRef, useEffect } from "react";
-import { db, storage } from "./firebase.js";
-import { ref as storageRef, uploadBytes, getDownloadURL } from "firebase/storage";
+import { db } from "./firebase.js";
 import { collection, doc, onSnapshot, setDoc, updateDoc, getDoc } from "firebase/firestore";
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -205,9 +204,8 @@ function DetailModal({ record, onClose, onFillEtapa }) {
             <div style={{ fontSize: 10, color: "#a8a29e", letterSpacing: 2, textTransform: "uppercase", marginBottom: 8 }}>📷 {etapa.fotos.length} foto(s)</div>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(120px, 1fr))", gap: 6 }}>
               {etapa.fotos.map((url, i) => (
-                <a key={i} href={url} target="_blank" rel="noreferrer">
-                  <img src={url} alt={`Foto ${i+1}`} style={{ width: "100%", height: 100, objectFit: "cover", borderRadius: 6, border: "1px solid #e7e5e4", cursor: "pointer" }} />
-                </a>
+                <img key={i} src={url} alt={`Foto ${i+1}`} onClick={() => { const w = window.open(); w.document.write(`<img src="${url}" style="max-width:100%;max-height:100vh;margin:auto;display:block;">`); }}
+                  style={{ width: "100%", height: 100, objectFit: "cover", borderRadius: 6, border: "1px solid #e7e5e4", cursor: "zoom-in" }} />
               ))}
             </div>
           </div>
@@ -278,7 +276,6 @@ function EtapaForm({ record, etapaNum, onSave, onCancel }) {
   const [step, setStep] = useState(1);
   const [cl, setCl] = useState(etapaData?.checklist && Object.keys(etapaData.checklist).length > 0 ? etapaData.checklist : emptyCheck(items));
   const [fotos, setFotos] = useState(Array.isArray(etapaData?.fotos) ? etapaData.fotos.map(f => typeof f === "string" ? { url: f, name: "foto" } : f) : []);
-  const [subiendo, setSubiendo] = useState(false);
   const [firmaRes, setFirmaRes] = useState(etapaData?.firmaResidente || false);
   const [firmaCont, setFirmaCont] = useState(etapaData?.firmaContratista || false);
   const [nombreCont, setNombreCont] = useState(etapaData?.nombreContratista || "");
@@ -497,7 +494,6 @@ function Card({ record, onClick, onEtapa, onDelete }) {
   const p1 = record.etapa1 ? pct(record.etapa1.checklist) : 0;
   const p2 = record.etapa2 ? pct(record.etapa2.checklist) : 0;
   const e1ok = record.etapa1?.estado === "aprobado";
-  const enProceso = globalEstado(record) === "proceso";
 
   return (
     <div onClick={() => onClick(record)}
@@ -512,8 +508,8 @@ function Card({ record, onClick, onEtapa, onDelete }) {
         </div>
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
           <StatusPill estado={globalEstado(record)} />
-          {enProceso && onDelete && (
-            <button onClick={e => { e.stopPropagation(); if(window.confirm("¿Eliminar este elemento?")) onDelete(record.id); }}
+          {onDelete && (
+            <button onClick={e => { e.stopPropagation(); if(window.confirm("¿Eliminar este elemento? Esta acción no se puede deshacer.")) onDelete(record.id); }}
               style={{ padding: "4px 10px", borderRadius: 6, border: "1px solid #fca5a5", background: "#fff", color: "#ef4444", cursor: "pointer", fontSize: 11, fontWeight: 600 }}>
               🗑
             </button>
@@ -831,7 +827,7 @@ export default function App() {
                 </div>
               )}
               {filtered.map(r => (
-                <Card key={r.id} record={r} onClick={setSelected} onEtapa={role === "residente" ? openEtapa : null} onDelete={role === "residente" ? handleDelete : null} />
+                <Card key={r.id} record={r} onClick={setSelected} onEtapa={role === "residente" ? openEtapa : null} onDelete={handleDelete} />
               ))}
             </div>
           </>
