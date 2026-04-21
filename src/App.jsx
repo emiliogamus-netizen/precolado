@@ -561,16 +561,14 @@ const DEFAULT_PINS = { dueno: "0000", residente: "1111" };
 function LoginScreen({ onLogin }) {
   const [pin, setPin] = useState("");
   const [error, setError] = useState("");
-  const [pins, setPins] = useState(DEFAULT_PINS);
-  const [loading, setLoading] = useState(true);
+  const [pins, setPins] = useState(null);
 
   useEffect(() => {
     (async () => {
       try {
-        const res = await window.storage.get("precolado-pins", true);
-        if (res) setPins(JSON.parse(res.value));
-      } catch(e) {}
-      setLoading(false);
+        const snap = await getDoc(doc(db, "config", "pins"));
+        setPins(snap.exists() ? snap.data() : DEFAULT_PINS);
+      } catch(e) { setPins(DEFAULT_PINS); }
     })();
   }, []);
 
@@ -579,6 +577,7 @@ function LoginScreen({ onLogin }) {
     if (pin.length >= 6) return;
     const next = pin + k;
     setPin(next);
+    if (!pins) return;
     if (next.length >= 4) {
       if (next === pins.dueno) { setPin(""); onLogin("dueno"); }
       else if (next === pins.residente) { setPin(""); onLogin("residente"); }
@@ -586,7 +585,7 @@ function LoginScreen({ onLogin }) {
     }
   };
 
-  if (loading) return <div style={{ minHeight:"100vh", display:"flex", alignItems:"center", justifyContent:"center", background:"#f7f6f3" }}><div style={{ color:"#a8a29e", fontSize:13 }}>Cargando...</div></div>;
+  if (!pins) return <div style={{ minHeight:"100vh", display:"flex", alignItems:"center", justifyContent:"center", background:"#f7f6f3" }}><div style={{ color:"#a8a29e", fontSize:13 }}>Cargando...</div></div>;
 
   return (
     <div style={{ minHeight:"100vh", background:"#f7f6f3", display:"flex", alignItems:"center", justifyContent:"center", fontFamily:"'Inter',system-ui,sans-serif" }}>
@@ -637,7 +636,7 @@ function ChangePinsModal({ onClose }) {
   const valid = form.dueno.length >= 4 && form.residente.length >= 4 && form.dueno !== form.residente;
 
   const save = async () => {
-    await window.storage.set("precolado-pins", JSON.stringify({ dueno: form.dueno, residente: form.residente }), true);
+    await setDoc(doc(db, "config", "pins"), { dueno: form.dueno, residente: form.residente });
     setSaved(true);
     setTimeout(onClose, 1200);
   };
@@ -670,34 +669,27 @@ function ChangePinsModal({ onClose }) {
 // APP PRINCIPAL
 // ─────────────────────────────────────────────────────────────────────────────
 export default function App() {
-  const [role, setRole] = useState(null); // null | "dueno" | "residente"
+  const [role, setRole] = useState(null);
   const [records, setRecords] = useState([]);
-  const [storageReady, setStorageReady] = useState(false);
+  const [loading, setLoading] = useState(false);
   const [view, setView] = useState("dash");
   const [selected, setSelected] = useState(null);
   const [etapaTarget, setEtapaTarget] = useState(null);
   const [filter, setFilter] = useState("todos");
   const [showPins, setShowPins] = useState(false);
 
-  // Cargar registros desde storage al iniciar sesión
+  // Escucha en tiempo real a Firestore
   useEffect(() => {
     if (!role) return;
-    (async () => {
-      try {
-        const res = await window.storage.get("precolado-records", true);
-        if (res) setRecords(JSON.parse(res.value));
-      } catch(e) {}
-      setStorageReady(true);
-    })();
+    setLoading(true);
+    const unsub = onSnapshot(collection(db, "records"), (snap) => {
+      const docs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      docs.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+      setRecords(docs);
+      setLoading(false);
+    });
+    return () => unsub();
   }, [role]);
-
-  // Guardar registros en storage cada vez que cambian
-  useEffect(() => {
-    if (!storageReady) return;
-    window.storage.set("precolado-records", JSON.stringify(records), true).catch(()=>{});
-  }, [records, storageReady]);
-
-  const saveRecords = (newRecords) => setRecords(newRecords);
 
   const filtered = filter === "todos" ? records : records.filter(r => globalEstado(r) === filter);
   const counts = {
@@ -706,19 +698,21 @@ export default function App() {
     listo:   records.filter(r => globalEstado(r) === "listo").length,
   };
 
-  const handleNew = (datos) => {
-    const rec = { id: Date.now(), ...datos, etapa1: { estado:"pendiente", checklist:emptyCheck(CHECKLIST_E1), fotos:0, firmaResidente:false, firmaContratista:false, obs:"" }, etapa2: null };
-    saveRecords([rec, ...records]);
-    setEtapaTarget({ record: rec, num: 1 });
+  const handleNew = async (datos) => {
+    const id = Date.now().toString();
+    const rec = { ...datos, createdAt: Date.now(), etapa1: { estado:"pendiente", checklist:emptyCheck(CHECKLIST_E1), fotos:[], firmaResidente:false, firmaContratista:false, obs:"" }, etapa2: null };
+    await setDoc(doc(db, "records", id), rec);
+    setEtapaTarget({ record: { id, ...rec }, num: 1 });
     setView("etapa");
   };
 
-  const handleEtapaSave = (record, num, data) => {
-    saveRecords(records.map(r => {
-      if (r.id !== record.id) return r;
-      if (num === 1) return { ...r, etapa1: data, etapa2: { estado:"pendiente", checklist:emptyCheck(CHECKLIST_E2), fotos:0, firmaResidente:false, firmaContratista:false, obs:"" } };
-      return { ...r, etapa2: data };
-    }));
+  const handleEtapaSave = async (record, num, data) => {
+    const ref = doc(db, "records", record.id.toString());
+    if (num === 1) {
+      await updateDoc(ref, { etapa1: data, etapa2: { estado:"pendiente", checklist:emptyCheck(CHECKLIST_E2), fotos:[], firmaResidente:false, firmaContratista:false, obs:"" } });
+    } else {
+      await updateDoc(ref, { etapa2: data });
+    }
     setView("dash");
   };
 
@@ -768,7 +762,7 @@ export default function App() {
           {role === "dueno" && (
             <button onClick={() => setShowPins(true)} style={{ padding: "6px 14px", borderRadius: 6, border: "1px solid #e7e5e4", background: "transparent", color: "#78716c", cursor: "pointer", fontSize: 12 }}>⚙ PINs</button>
           )}
-          <button onClick={() => { setRole(null); setView("dash"); setStorageReady(false); }} style={{ padding: "6px 14px", borderRadius: 6, border: "1px solid #e7e5e4", background: "transparent", color: "#78716c", cursor: "pointer", fontSize: 12 }}>Salir</button>
+          <button onClick={() => { setRole(null); setView("dash"); setRecords([]); }} style={{ padding: "6px 14px", borderRadius: 6, border: "1px solid #e7e5e4", background: "transparent", color: "#78716c", cursor: "pointer", fontSize: 12 }}>Salir</button>
         </div>
       </div>
 
