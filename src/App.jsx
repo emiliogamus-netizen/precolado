@@ -721,6 +721,8 @@ export default function App() {
     await deleteDoc(doc(db, "records", id.toString()));
   };
 
+  const openEtapa = (rec, num) => { setEtapaTarget({ record: rec, num }); setView("etapa"); };
+
   const FILTERS = [
     { key:"todos",   label:"Todos",       count: counts.total },
     { key:"proceso", label:"En proceso",  count: counts.proceso },
