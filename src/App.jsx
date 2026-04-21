@@ -396,8 +396,23 @@ function EtapaForm({ record, etapaNum, onSave, onCancel }) {
           <div style={{ display: "flex", gap: 10, justifyContent: "space-between" }}>
             <button onClick={() => setStep(2)} style={{ padding: "9px 18px", background: "transparent", border: "1px solid #e7e5e4", color: "#78716c", borderRadius: 6, cursor: "pointer" }}>← Atrás</button>
             <button onClick={async () => {
-                const toB64 = f => new Promise(res => { const r = new FileReader(); r.onload = () => res(r.result); r.readAsDataURL(f.file); });
-                const fotosB64 = await Promise.all(fotos.map(f => f.file ? toB64(f) : Promise.resolve(f.url || f)));
+                const compressImg = (file) => new Promise(res => {
+                  const img = new Image();
+                  const url = URL.createObjectURL(file);
+                  img.onload = () => {
+                    const MAX = 800;
+                    let w = img.width, h = img.height;
+                    if (w > h && w > MAX) { h = h * MAX / w; w = MAX; }
+                    else if (h > MAX) { w = w * MAX / h; h = MAX; }
+                    const canvas = document.createElement("canvas");
+                    canvas.width = w; canvas.height = h;
+                    canvas.getContext("2d").drawImage(img, 0, 0, w, h);
+                    res(canvas.toDataURL("image/jpeg", 0.6));
+                    URL.revokeObjectURL(url);
+                  };
+                  img.src = url;
+                });
+                const fotosB64 = await Promise.all(fotos.map(f => f.file ? compressImg(f.file) : Promise.resolve(f.url || f)));
                 onSave(record, etapaNum, { estado: p === 100 ? "aprobado" : "pendiente", checklist: cl, fotos: fotosB64, firmaResidente: firmaRes, firmaContratista: firmaCont, nombreContratista: nombreCont.trim(), obs, fechaHora: new Date().toLocaleString("es-MX", { day:"2-digit", month:"2-digit", year:"numeric", hour:"2-digit", minute:"2-digit" }) });
               }}
               disabled={!canSave}
