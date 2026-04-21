@@ -273,17 +273,19 @@ function EtapaForm({ record, etapaNum, onSave, onCancel }) {
     ? "Verificar el acero, recubrimientos e instalaciones antes de cerrar la cimbra."
     : "Verificar la cimbra ya colocada y condiciones de colado.";
 
+  const etapaData = etapaNum === 1 ? record.etapa1 : record.etapa2;
+
   const [step, setStep] = useState(1);
-  const [cl, setCl] = useState(emptyCheck(items));
-  const [fotos, setFotos] = useState([]); // array of {name, file, url}
+  const [cl, setCl] = useState(etapaData?.checklist && Object.keys(etapaData.checklist).length > 0 ? etapaData.checklist : emptyCheck(items));
+  const [fotos, setFotos] = useState(Array.isArray(etapaData?.fotos) ? etapaData.fotos.map(f => typeof f === "string" ? { url: f, name: "foto" } : f) : []);
   const [subiendo, setSubiendo] = useState(false);
-  const [firmaRes, setFirmaRes] = useState(false);
-  const [firmaCont, setFirmaCont] = useState(false);
-  const [nombreCont, setNombreCont] = useState("");
-  const [obs, setObs] = useState("");
+  const [firmaRes, setFirmaRes] = useState(etapaData?.firmaResidente || false);
+  const [firmaCont, setFirmaCont] = useState(etapaData?.firmaContratista || false);
+  const [nombreCont, setNombreCont] = useState(etapaData?.nombreContratista || "");
+  const [obs, setObs] = useState(etapaData?.obs || "");
 
   const p = pct(cl);
-  const canSave = p > 80 && firmaRes && firmaCont && nombreCont.trim().length > 2;
+  const canSave = p >= 80 && firmaRes && firmaCont && nombreCont.trim().length > 2;
   const toggle = id => setCl(prev => ({ ...prev, [id]: !prev[id] }));
 
   const iStyle = { width: "100%", background: "#fff", border: "1px solid #e7e5e4", color: "#1c1917", padding: "9px 12px", borderRadius: 6, fontSize: 13, outline: "none", fontFamily: "inherit" };
@@ -386,7 +388,7 @@ function EtapaForm({ record, etapaNum, onSave, onCancel }) {
               {canSave ? "✓ Listo para guardar" : "Para guardar se requiere:"}
             </div>
             <div style={{ display: "flex", flexDirection: "column", gap: 3, fontSize: 12 }}>
-              <span style={{ color: p > 80 ? "#059669" : "#d97706" }}>{p > 80 ? "✓" : "○"} Checklist al {p}% (mínimo 80%)</span>
+              <span style={{ color: p >= 80 ? "#059669" : "#d97706" }}>{p >= 80 ? "✓" : "○"} Checklist al {p}% (mínimo 80%)</span>
               <span style={{ color: firmaRes ? "#059669" : "#d97706" }}>{firmaRes ? "✓" : "○"} Firma del Residente de Obra</span>
               <span style={{ color: nombreCont.trim().length > 2 ? "#059669" : "#d97706" }}>{nombreCont.trim().length > 2 ? "✓" : "○"} Nombre del Contratista</span>
               <span style={{ color: firmaCont ? "#059669" : "#d97706" }}>{firmaCont ? "✓" : "○"} Firma del Contratista</span>
@@ -396,24 +398,27 @@ function EtapaForm({ record, etapaNum, onSave, onCancel }) {
           <div style={{ display: "flex", gap: 10, justifyContent: "space-between" }}>
             <button onClick={() => setStep(2)} style={{ padding: "9px 18px", background: "transparent", border: "1px solid #e7e5e4", color: "#78716c", borderRadius: 6, cursor: "pointer" }}>← Atrás</button>
             <button onClick={async () => {
-                const compressImg = (file) => new Promise(res => {
+                const compressImg = (file) => new Promise((res, rej) => {
                   const img = new Image();
                   const url = URL.createObjectURL(file);
                   img.onload = () => {
-                    const MAX = 800;
-                    let w = img.width, h = img.height;
-                    if (w > h && w > MAX) { h = h * MAX / w; w = MAX; }
-                    else if (h > MAX) { w = w * MAX / h; h = MAX; }
-                    const canvas = document.createElement("canvas");
-                    canvas.width = w; canvas.height = h;
-                    canvas.getContext("2d").drawImage(img, 0, 0, w, h);
-                    res(canvas.toDataURL("image/jpeg", 0.6));
+                    try {
+                      const MAX = 1000;
+                      let w = img.width || MAX, h = img.height || MAX;
+                      if (w > h && w > MAX) { h = Math.round(h * MAX / w); w = MAX; }
+                      else if (h > MAX) { w = Math.round(w * MAX / h); h = MAX; }
+                      const canvas = document.createElement("canvas");
+                      canvas.width = w; canvas.height = h;
+                      canvas.getContext("2d").drawImage(img, 0, 0, w, h);
+                      res(canvas.toDataURL("image/jpeg", 0.65));
+                    } catch(e) { res(url); }
                     URL.revokeObjectURL(url);
                   };
+                  img.onerror = () => { res(null); URL.revokeObjectURL(url); };
                   img.src = url;
                 });
-                const fotosB64 = await Promise.all(fotos.map(f => f.file ? compressImg(f.file) : Promise.resolve(f.url || f)));
-                onSave(record, etapaNum, { estado: p === 100 ? "aprobado" : "pendiente", checklist: cl, fotos: fotosB64, firmaResidente: firmaRes, firmaContratista: firmaCont, nombreContratista: nombreCont.trim(), obs, fechaHora: new Date().toLocaleString("es-MX", { day:"2-digit", month:"2-digit", year:"numeric", hour:"2-digit", minute:"2-digit" }) });
+                const fotosB64 = (await Promise.all(fotos.map(f => f.file ? compressImg(f.file) : Promise.resolve(f.url || f)))).filter(Boolean);
+                onSave(record, etapaNum, { estado: p >= 80 ? "aprobado" : "pendiente", checklist: cl, fotos: fotosB64, firmaResidente: firmaRes, firmaContratista: firmaCont, nombreContratista: nombreCont.trim(), obs, fechaHora: new Date().toLocaleString("es-MX", { day:"2-digit", month:"2-digit", year:"numeric", hour:"2-digit", minute:"2-digit" }) });
               }}
               disabled={!canSave}
               style={{ padding: "9px 26px", background: canSave ? "#10b981" : "#e7e5e4", border: "none", color: canSave ? "#fff" : "#a8a29e", borderRadius: 6, cursor: canSave ? "pointer" : "not-allowed", fontWeight: 700, fontSize: 14 }}>
